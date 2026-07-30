@@ -118,7 +118,7 @@
     <div id="labels"><span class="si">SÌ</span><span class="no">NO</span></div>
     <div id="count">0</div>
   </div>
-  <div id="hint">tocca lo schermo o scegli una risposta per votare</div>
+  <div id="hint">scegli una risposta per votare</div>
   <div id="net"><span class="dot"></span><span class="lbl">—</span></div>
   <button id="toggle" title="Comandi (H)">≡</button>
 
@@ -521,20 +521,21 @@ const composer=new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene,camera));
 const bloom=new UnrealBloomPass(new THREE.Vector2(1,1), CFG.BLOOM_STRENGTH, 0.55, 0.20);
 composer.addPass(bloom); composer.addPass(new OutputPass());
-/* centra e ridimensiona il cristallo nello spazio libero sopra il foglio risposte (mobile) */
+/* centra e ridimensiona il rombo nell'area libera tra header e risposte (mobile) */
 function layoutCrystal(){
   const w=window.innerWidth, h=window.innerHeight, mobile=w<=1024;
   if(!mobile){ camera.position.z=4.6; group.position.y=0; camera.updateProjectionMatrix(); return; }
-  const sheet=document.getElementById('answers');
+  const sheet=document.getElementById('answers'), led=document.getElementById('led');
   const sh = sheet ? sheet.getBoundingClientRect().height : 0;
-  const topH = Math.max(160, h - sh);                 // area visibile sopra le risposte
+  const topPad = led ? led.getBoundingClientRect().bottom + 12 : 110;   // sotto titolo/domanda/LED
+  const gap = Math.max(160, h - sh - topPad);          // area libera tra header e risposte
   const t = Math.tan((camera.fov*Math.PI/180)/2);
-  const CRYS_H=2.6, fill=0.70;                          // il cristallo occupa ~70% dell'area libera
-  const halfHWorld = (CRYS_H*h)/(fill*topH*2);
+  const CRYS_H=2.6, fill=0.72;                          // il rombo occupa ~72% dell'area libera
+  const halfHWorld = (CRYS_H*h)/(fill*gap*2);
   const z = clamp(halfHWorld/t, 4.6, 9.5);
   camera.position.z=z;
   const worldPerPx=(2*z*t)/h;
-  group.position.y=(sh/2)*worldPerPx;                  // alza il cristallo per centrarlo nell'area sopra
+  group.position.y=((sh - topPad)/2)*worldPerPx;       // centra il rombo nell'area libera
   camera.updateProjectionMatrix();
 }
 function resize(){ const w=window.innerWidth,h=window.innerHeight; renderer.setSize(w,h); composer.setSize(w,h); bloom.setSize(w,h); camera.aspect=w/h; layoutCrystal(); }
@@ -604,7 +605,6 @@ autoBtn.addEventListener('click', ()=>setAuto(!auto));
 document.getElementById('speedBtns').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b)return; speed=+b.dataset.s; [...e.currentTarget.children].forEach(c=>c.classList.toggle('active',c===b)); });
 document.getElementById('injectBtns').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b)return; inject(+b.dataset.n, distEl.value); });
 document.getElementById('resetBtn').addEventListener('click', ()=>{ state.sumValue=state.count=state.si=state.no=0; state.mean=state.meanShown=0; state.impulses=[]; state.crystallized=false; state.crystals=0; state.lastVoteAt=-1e9; formStart=world; });
-renderer.domElement.addEventListener('pointerdown', e=>{ const side=e.clientX<window.innerWidth/2?-1:1; const frac=Math.abs(e.clientX-window.innerWidth/2)/(window.innerWidth/2); vote(side, clamp(Math.ceil(frac*5),1,5)); fadeHint(); });
 window.addEventListener('keydown', e=>{ if(DEV && e.key===' '){ e.preventDefault(); setAuto(!auto); return; } if(DEV && (e.key==='h'||e.key==='H')){ panel.classList.toggle('open'); return; }
   if(e.key>='1'&&e.key<='5'){ vote(-1,+e.key); fadeHint(); } else if(e.key>='6'&&e.key<='9'){ vote(1,+e.key-5); fadeHint(); } else if(e.key==='0'){ vote(1,5); fadeHint(); } });
 function fadeHint(){ hint.style.opacity=0; }
