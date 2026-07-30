@@ -46,19 +46,21 @@
 
   /* ---- MOBILE / touch: risposte in un foglio in basso, toccabili ---- */
   @media (max-width: 1024px) {
-    #topbar { top: 10px; width: 100%; }
-    #topbar .title { font-size: 11px; letter-spacing: 4px; }
-    #topbar .q { font-size: 11px; margin-top: 6px; padding: 0 16px; }
-    #led { top: 74px; }
-    #count { left: 12px; right: auto; top: 12px; bottom: auto; transform: none; }
+    #count { left: 12px; right: auto; top: 12px; bottom: auto; transform: none; font-size: 12px; }
+    #net { top: 13px; right: 12px; font-size: 9px; }
+    #topbar { top: 34px; width: 100%; padding: 0 12px; }
+    #topbar .title { font-size: 10px; letter-spacing: 3px; }
+    #topbar .q { font-size: 11px; margin-top: 5px; padding: 0; }
+    #led { top: 94px; }
     #slider, #labels, #hint { display: none; }
     #answers { display: flex; position: fixed; left: 0; right: 0; bottom: 0; height: 44vh; z-index: 6; }
     #answers .col {
-      position: relative; transform: none; bottom: auto;
+      position: relative; left: auto; right: auto; transform: none; bottom: auto;
       width: 50%; height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch;
-      padding: 34px 10px 20px; gap: 8px; align-items: stretch; text-align: left;
-      background: linear-gradient(to top, rgba(6,6,8,.96), rgba(6,6,8,.82) 68%, rgba(6,6,8,0));
+      padding: 36px 10px calc(20px + env(safe-area-inset-bottom)) 10px; gap: 8px; align-items: stretch; text-align: left;
+      background: linear-gradient(to top, rgba(6,6,8,.97), rgba(6,6,8,.85) 70%, rgba(6,6,8,0));
     }
+    #answers .si, #answers .no { left: auto; right: auto; }
     #answers .si { border-right: 1px solid #1a1a20; }
     #answers .col::before { position: absolute; top: 10px; left: 12px; font-size: 11px; letter-spacing: 2px; font-weight: 700; }
     #answers .si::before { content: 'S\00cc \00b7 \00e8 una bufala'; color: #8fa0c0; }
