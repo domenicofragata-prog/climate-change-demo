@@ -51,8 +51,10 @@
     #topbar { top: 34px; width: 100%; padding: 0 12px; }
     #topbar .title { font-size: 10px; letter-spacing: 3px; }
     #topbar .q { font-size: 11px; margin-top: 5px; padding: 0; }
-    #led { top: 94px; }
-    #slider, #labels, #hint { display: none; }
+    #led, #hint { display: none; }
+    #slider { display: block; top: 92px; bottom: auto; width: 66vw; }
+    #labels { display: block; top: 92px; bottom: auto; width: 66vw; }
+    #labels .si, #labels .no { font-size: 10px; }
     #answers {
       display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
       justify-content: center; align-items: flex-start; gap: 14px;
@@ -525,9 +527,9 @@ composer.addPass(bloom); composer.addPass(new OutputPass());
 function layoutCrystal(){
   const w=window.innerWidth, h=window.innerHeight, mobile=w<=1024;
   if(!mobile){ camera.position.z=4.6; group.position.y=0; camera.updateProjectionMatrix(); return; }
-  const sheet=document.getElementById('answers'), led=document.getElementById('led');
+  const sheet=document.getElementById('answers'), meter=document.getElementById('slider');
   const sh = sheet ? sheet.getBoundingClientRect().height : 0;
-  const topPad = led ? led.getBoundingClientRect().bottom + 12 : 110;   // sotto titolo/domanda/LED
+  const topPad = meter ? meter.getBoundingClientRect().bottom + 16 : 120;   // sotto titolo/domanda/misuratore
   const gap = Math.max(160, h - sh - topPad);          // area libera tra header e risposte
   const t = Math.tan((camera.fov*Math.PI/180)/2);
   const CRYS_H=2.6, fill=0.72;                          // il rombo occupa ~72% dell'area libera
