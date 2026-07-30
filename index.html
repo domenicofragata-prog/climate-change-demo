@@ -38,6 +38,11 @@
   #answers .no .ans .n { color: #b4907f; }
   #answers .ans .t { flex: 1 1 auto; }
   #hint { position: fixed; left: 14px; bottom: 12px; font-size: 11px; letter-spacing: 1px; color: #4a4a4a; transition: opacity .6s ease; z-index: 5; }
+  #net { position: fixed; top: 14px; right: 14px; display: flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 1px; color: #5a5a62; z-index: 7; pointer-events: none; }
+  #net .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+  #net.online .dot { background: #66d38a; box-shadow: 0 0 8px rgba(102,211,138,.9); }
+  #net.down .dot { background: #d36666; box-shadow: 0 0 8px rgba(211,102,102,.9); }
+  #net.offline .dot { background: #8a8a92; }
 
   /* ---- MOBILE / touch: risposte in un foglio in basso, toccabili ---- */
   @media (max-width: 1024px) {
@@ -45,7 +50,7 @@
     #topbar .title { font-size: 11px; letter-spacing: 4px; }
     #topbar .q { font-size: 11px; margin-top: 6px; padding: 0 16px; }
     #led { top: 74px; }
-    #count { left: auto; right: 12px; top: 12px; bottom: auto; transform: none; }
+    #count { left: 12px; right: auto; top: 12px; bottom: auto; transform: none; }
     #slider, #labels, #hint { display: none; }
     #answers { display: flex; position: fixed; left: 0; right: 0; bottom: 0; height: 44vh; z-index: 6; }
     #answers .col {
@@ -108,7 +113,8 @@
     <div id="labels"><span class="si">SÌ</span><span class="no">NO</span></div>
     <div id="count">0</div>
   </div>
-  <div id="hint">H comandi &nbsp;·&nbsp; tocca lo schermo per votare &nbsp;·&nbsp; 1-5 sì &nbsp; 6-0 no &nbsp; spazio auto</div>
+  <div id="hint">tocca lo schermo o scegli una risposta per votare</div>
+  <div id="net"><span class="dot"></span><span class="lbl">—</span></div>
   <button id="toggle" title="Comandi (H)">≡</button>
 
   <div id="panel">
@@ -155,6 +161,16 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+/* ============================================================
+   BACKEND realtime (Supabase) — stato condiviso multi-utente
+   ============================================================ */
+const SUPABASE_URL      = 'https://ylmpyktislrogmmafgtd.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlsbXB5a3Rpc2xyb2dtbWFmZ3RkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0MDI0MTQsImV4cCI6MjEwMDk3ODQxNH0.2WD0p8soIUCG_Js96rZO7TIBfKhxgRUBMhWYQIc16RQ';
+const ONLINE = /^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(SUPABASE_URL) && SUPABASE_ANON_KEY.length > 20;
+const DEV = new URLSearchParams(location.search).has('dev');
+const DEVICE_ID = (()=>{ try{ let d=localStorage.getItem('cc_device'); if(!d){ d=(crypto.randomUUID?crypto.randomUUID():String(Math.random()).slice(2)); localStorage.setItem('cc_device',d);} return d; }catch(e){ return String(Math.random()).slice(2); } })();
+let supabase=null; const myRecent=new Set();
 
 /* ============================================================
    CFG — calibrazione (SPEC §13 + estetica)
@@ -256,11 +272,40 @@ function genVote(dist,progress){ let polarity=Math.random()<0.5?-1:1, intensity=
     case 'extremes':intensity=Math.random()<0.7?5:(Math.random()<0.5?4:1);break;
     case 'drift':{const p=progress===undefined?Math.random():progress; polarity=Math.random()<p?1:-1;break;} }
   return {polarity,intensity}; }
-function vote(polarity,intensity){ intensity=clamp(Math.round(intensity),1,5); polarity=polarity<0?-1:1;
+/* applyVote = effetto locale (statistica + impulso/fulmine/scintille). Usato sia dai voti reali sia dagli eventi realtime. */
+function applyVote(polarity,intensity){ intensity=clamp(Math.round(intensity),1,5); polarity=polarity<0?-1:1;
   state.sumValue+=polarity*intensity; state.count++; if(polarity<0)state.si++; else state.no++;
   recomputeMean(); state.lastVoteAt=world; state.crystallized=false; const seed=state.nextId++;
   const fire=()=>{ state.impulses.push({dir:polarity,intensity,start:world,seed,bolt:makeBolt(polarity,intensity,seed)}); spawnSparks(polarity,intensity); };
   if(CFG.IMPULSE_DELAY_MS>0) setTimeout(fire,CFG.IMPULSE_DELAY_MS); else fire(); }
+/* castVote = voto reale: applica in ottimistico e scrive su Supabase; l'eco realtime verra' deduplicata via vote_id. */
+async function castVote(polarity,intensity){ intensity=clamp(Math.round(intensity),1,5); polarity=polarity<0?-1:1;
+  applyVote(polarity,intensity);
+  if(ONLINE && supabase){ const vid=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random());
+    myRecent.add(vid); setTimeout(()=>myRecent.delete(vid),20000);
+    const { error } = await supabase.from('votes').insert({ polarity, intensity, device_id:DEVICE_ID, vote_id:vid });
+    if(error) console.warn('[vote] insert error:', error.message); } }
+/* i punti di voto della UI chiamano vote() -> voto reale condiviso */
+const vote = castVote;
+
+/* --- stato condiviso: lettura aggregata all'avvio + sottoscrizione realtime --- */
+async function loadState(){ if(!supabase) return; try{ const { data, error } = await supabase.from('vote_state').select('*').single();
+    if(error){ console.warn('[loadState]', error.message); return; }
+    state.count=+data.count||0; state.sumValue=+data.sum_value||0; state.si=+data.si||0; state.no=+data.no||0;
+    recomputeMean(); state.meanShown=state.mean;
+  }catch(e){ console.warn('[loadState]', e); } }
+function onInsert(payload){ const r=payload && payload.new; if(!r) return;
+  if(r.vote_id && myRecent.has(r.vote_id)){ myRecent.delete(r.vote_id); return; } // eco del mio stesso voto: gia' applicato
+  applyVote(r.polarity, r.intensity); }
+async function initRealtime(){ if(!ONLINE){ setNet('offline'); return; }
+  try{ const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { realtime:{ params:{ eventsPerSecond:30 } } });
+    await loadState();
+    supabase.channel('votes-rt')
+      .on('postgres_changes', { event:'INSERT', schema:'public', table:'votes' }, onInsert)
+      .subscribe((st)=>{ if(st==='SUBSCRIBED'){ setNet('online'); loadState(); }      // (ri)sincronizza allo start e a ogni riconnessione
+        else if(st==='CHANNEL_ERROR'||st==='TIMED_OUT'||st==='CLOSED'){ setNet('down'); } });
+  }catch(e){ console.warn('[realtime init]', e); setNet('down'); } }
 
 /* Saetta frattale (midpoint displacement) + biforcazioni, campionata in particelle */
 function makeBolt(dir,intensity,seed){
@@ -484,6 +529,8 @@ window.addEventListener('resize', resize);
 const sliderEl=document.getElementById('slider'),indEl=document.getElementById('ind'),countEl=document.getElementById('count'),ledEl=document.getElementById('led');
 for(let i=0;i<=10;i++){ const t=document.createElement('div'); t.className='tick'+(i===5?' big':''); t.style.left=(i*10)+'%'; sliderEl.appendChild(t); }
 const ledSegs=[]; for(let i=0;i<10;i++){ const s=document.createElement('div'); s.className='seg'; ledEl.appendChild(s); ledSegs.push(s); }
+const netEl=document.getElementById('net'), netLbl=netEl.querySelector('.lbl');
+function setNet(s){ netEl.className=s; netLbl.textContent = s==='online'?'in diretta' : s==='down'?'riconnessione…' : s==='offline'?'locale' : '—'; }
 function updateHUD(){ indEl.style.left=(50+state.meanShown*50)+'%'; countEl.textContent=state.count.toLocaleString('it-IT');
   let left=0,right=0; for(const im of state.impulses){ const e=env(world-im.start); if(e<=0)continue; if(im.dir<0)left=Math.max(left,im.intensity*e); else right=Math.max(right,im.intensity*e); }
   for(let i=0;i<5;i++){ ledSegs[4-i].classList.toggle('on',(i+1)<=Math.round(left)); ledSegs[5+i].classList.toggle('on',(i+1)<=Math.round(right)); } }
@@ -496,7 +543,7 @@ function scheduleNext(){ const perSec=(+rateEl.value)/60; nextArrival=world-Math
 const tmpImp=[];
 function frame(now){ let dtReal=(now-last)/1000; last=now; if(dtReal>0.1)dtReal=0.1; const dt=dtReal*speed; world+=dt;
   state.meanShown += (state.mean-state.meanShown)*(1-Math.exp(-dt/CFG.GLIDE_SECONDS));
-  if(auto){ let g=0; while(world>=nextArrival && g++<80){ const v=genVote(distEl.value,Math.random()); vote(v.polarity,v.intensity); scheduleNext(); } }
+  if(auto){ let g=0; while(world>=nextArrival && g++<80){ const v=genVote(distEl.value,Math.random()); applyVote(v.polarity,v.intensity); scheduleNext(); } }
   const total=IMPULSE_TOTAL(); state.impulses=state.impulses.filter(im=>(world-im.start)<total);
   if(!state.crystallized && (world-state.lastVoteAt)>CFG.CRYSTAL_THRESHOLD_S && state.count>0){ state.crystallized=true; state.crystals++; }
 
@@ -541,7 +588,7 @@ document.getElementById('speedBtns').addEventListener('click', e=>{ const b=e.ta
 document.getElementById('injectBtns').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b)return; inject(+b.dataset.n, distEl.value); });
 document.getElementById('resetBtn').addEventListener('click', ()=>{ state.sumValue=state.count=state.si=state.no=0; state.mean=state.meanShown=0; state.impulses=[]; state.crystallized=false; state.crystals=0; state.lastVoteAt=-1e9; formStart=world; });
 renderer.domElement.addEventListener('pointerdown', e=>{ const side=e.clientX<window.innerWidth/2?-1:1; const frac=Math.abs(e.clientX-window.innerWidth/2)/(window.innerWidth/2); vote(side, clamp(Math.ceil(frac*5),1,5)); fadeHint(); });
-window.addEventListener('keydown', e=>{ if(e.key===' '){ e.preventDefault(); setAuto(!auto); return; } if(e.key==='h'||e.key==='H'){ panel.classList.toggle('open'); return; }
+window.addEventListener('keydown', e=>{ if(DEV && e.key===' '){ e.preventDefault(); setAuto(!auto); return; } if(DEV && (e.key==='h'||e.key==='H')){ panel.classList.toggle('open'); return; }
   if(e.key>='1'&&e.key<='5'){ vote(-1,+e.key); fadeHint(); } else if(e.key>='6'&&e.key<='9'){ vote(1,+e.key-5); fadeHint(); } else if(e.key==='0'){ vote(1,5); fadeHint(); } });
 function fadeHint(){ hint.style.opacity=0; }
 
@@ -581,7 +628,11 @@ for(const [key,min,max,step] of CFG_TUNE){ const row=document.createElement('div
   inp.addEventListener('input', ()=>{ CFG[key]=+inp.value; val.textContent=+inp.value; if(key==='BLOOM_STRENGTH')bloom.strength=+inp.value; });
   row.append(lab,inp,val); cfgWrap.appendChild(row); }
 
-resize(); formStart=0; requestAnimationFrame(frame);
+/* strumenti di sviluppo (simulatore, calibrazione) solo con ?dev=1 */
+if(!DEV){ toggle.style.display='none'; panel.style.display='none'; }
+else { hint.innerHTML='DEV &nbsp;·&nbsp; H pannello &nbsp; spazio auto &nbsp; 1-5 sì &nbsp; 6-0 no'; }
+
+resize(); formStart=0; initRealtime(); requestAnimationFrame(frame);
 </script>
 </body>
 </html>
